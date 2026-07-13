@@ -182,6 +182,10 @@ tr:hover td{background:var(--surface2)}
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       Previsões
     </div>
+    <div class="ni" id="nav-historico" onclick="go('historico')">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Histórico
+    </div>
     <div class="ni" id="nav-importar" onclick="go('importar')">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       Importar CSV
@@ -317,6 +321,40 @@ tr:hover td{background:var(--surface2)}
   </div>
 </div>
 
+<div id="page-historico" style="display:none">
+  <div class="topbar"><span class="page-title">Histórico</span><div class="ta">
+    <select class="sel" id="hist-mes" onchange="renderHistorico()">
+      <option value="">Todos os meses</option>
+    </select>
+    <select class="sel" id="hist-tipo" onchange="renderHistorico()">
+      <option value="todos">Recebidos e pagos</option>
+      <option value="cliente">Recebidos</option>
+      <option value="fornecedor">Pagos</option>
+    </select>
+  </div></div>
+  <div class="content">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+      <div class="mc"><div class="ml">Total recebido</div><div class="mv" style="color:var(--green)" id="hist-rec">R$ 0,00</div><div class="ms" id="hist-rec-n">0 parcelas</div></div>
+      <div class="mc"><div class="ml">Total pago</div><div class="mv" style="color:var(--red)" id="hist-pag">R$ 0,00</div><div class="ms" id="hist-pag-n">0 parcelas</div></div>
+      <div class="mc"><div class="ml">Resultado</div><div class="mv" id="hist-res">R$ 0,00</div><div class="ms">recebido − pago</div></div>
+    </div>
+    <div class="card"><div class="ch"><h3>Lançamentos realizados</h3><span id="hist-sub"></span></div><div id="list-historico"></div></div>
+    <div class="card" style="margin-top:16px">
+      <div class="ch"><h3>Composição do histórico</h3></div>
+      <div style="overflow-x:auto"><div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(280px,1fr);gap:0;border-top:1px solid var(--border);min-width:560px">
+        <div style="padding:14px;border-right:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:500;color:var(--red);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Pago <span id="hist-pizza-pag-sub" style="font-weight:400;color:var(--text3)"></span></div>
+          <div id="hist-pizza-pag"></div>
+        </div>
+        <div style="padding:14px">
+          <div style="font-size:11px;font-weight:500;color:var(--green);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Recebido <span id="hist-pizza-rec-sub" style="font-weight:400;color:var(--text3)"></span></div>
+          <div id="hist-pizza-rec"></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
 <div id="page-importar" style="display:none">
   <div class="topbar"><span class="page-title">Importar CSV</span></div>
   <div class="content" style="max-width:660px">
@@ -350,7 +388,7 @@ tr:hover td{background:var(--surface2)}
 // ── helpers ──────────────────────────────────────────────────────────────────
 var MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 var MFULL  = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-var PAGES  = ['dashboard','contas','entidades','lancamentos','parcelas','previsoes','importar'];
+var PAGES  = ['dashboard','contas','entidades','lancamentos','parcelas','previsoes','historico','importar'];
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
 function today(){ return new Date().toISOString().slice(0,10); }
@@ -495,6 +533,7 @@ function go(p){
     el('nav-'+x).classList.toggle('active', x===p);
   });
   if(p==='contas') renderContas();
+  if(p==='historico') renderHistorico();
   if(p==='dashboard') renderDash();
   if(p==='entidades') renderEnt();
   if(p==='lancamentos') renderLanc();
@@ -1067,6 +1106,7 @@ function togPago(id, contaId){
   var p=S.parcelas.find(function(x){return x.id===id2;});
   if(!p){ console.warn('togPago: parcela nao encontrada id=',id2); return; }
   p.pago=!p.pago;
+  if(p.pago) p.dataBaixa=today(); else delete p.dataBaixa;
   var isRec = p.tipo==='cliente'||p.tipo==='receber'||p.tipo==='entrada';
   var delta  = isRec ? p.valor : -p.valor;
   if(S.contas.length>0 && contaId){
@@ -1667,6 +1707,103 @@ function confirmCSV(rows){
   renderDash();
 }
 function showCSVErr(m){el('csv-prev').innerHTML='<div class="alert aw"><b>Erro:</b> '+m+'</div>';}
+
+// ── historico ─────────────────────────────────────────────────────────────────
+function renderHistorico(){
+  // Populate month selector from baixadas parcelas
+  var selMes=el('hist-mes');
+  var baixadas=S.parcelas.filter(function(p){return p.pago;});
+
+  if(selMes){
+    var meses=[];
+    baixadas.forEach(function(p){
+      var d=p.dataBaixa||p.vencimento||'';
+      var m=d?mk(d):''; if(m&&meses.indexOf(m)<0) meses.push(m);
+    });
+    meses.sort().reverse();
+    var cur=selMes.value;
+    if(!cur && meses.length) cur=meses[0];
+    selMes.innerHTML='<option value="">Todos os meses</option>'+meses.map(function(m){
+      var mo=parseInt(m.slice(5,7))-1, yr=m.slice(0,4);
+      return '<option value="'+m+'"'+(cur===m?' selected':'')+'>'+MONTHS[mo]+' '+yr+'</option>';
+    }).join('');
+    selMes.value=cur;
+  }
+  var mesFiltro=selMes?selMes.value:'';
+  var tipoFiltro=(el('hist-tipo')&&el('hist-tipo').value)||'todos';
+
+  var lista=baixadas.filter(function(p){
+    if(mesFiltro){
+      var d=p.dataBaixa||p.vencimento||'';
+      if(!d||mk(d)!==mesFiltro) return false;
+    }
+    if(tipoFiltro==='cliente' && p.tipo!=='cliente') return false;
+    if(tipoFiltro==='fornecedor' && p.tipo!=='fornecedor') return false;
+    return true;
+  }).sort(function(a,b){
+    var da=a.dataBaixa||a.vencimento||'';
+    var db=b.dataBaixa||b.vencimento||'';
+    return db.localeCompare(da);
+  });
+
+  var tRec=lista.filter(function(p){return p.tipo==='cliente';}).reduce(function(s,p){return s+p.valor;},0);
+  var tPag=lista.filter(function(p){return p.tipo==='fornecedor';}).reduce(function(s,p){return s+p.valor;},0);
+  var res=tRec-tPag;
+
+  el('hist-rec').textContent=fm(tRec);
+  el('hist-pag').textContent=fm(tPag);
+  el('hist-res').textContent=fm(res);
+  el('hist-res').style.color=res>=0?'var(--blue)':'var(--red)';
+  el('hist-rec-n').textContent=lista.filter(function(p){return p.tipo==='cliente';}).length+' parcelas';
+  el('hist-pag-n').textContent=lista.filter(function(p){return p.tipo==='fornecedor';}).length+' parcelas';
+
+  var mesLabel=mesFiltro?(MFULL[parseInt(mesFiltro.slice(5,7))-1]+' '+mesFiltro.slice(0,4)):'todos os meses';
+  el('hist-sub').textContent=lista.length+' registros — '+mesLabel;
+
+  var el2=el('list-historico');
+  if(!lista.length){
+    el2.innerHTML='<div class="empty">Nenhum lançamento baixado'+(mesFiltro?' neste mês':'')+'.</div>';
+  } else {
+    el2.innerHTML='<table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Entidade</th><th>Tipo</th><th style="text-align:right">Valor</th><th>Conta</th></tr></thead><tbody>'+
+      lista.map(function(p){
+        var conta=p.contaId?S.contas.find(function(c){return c.id===p.contaId;}):null;
+        return '<tr>'+
+          '<td style="color:var(--text3)">'+fd(p.vencimento)+'</td>'+
+          '<td>'+p.desc+'</td>'+
+          '<td>'+p.entNome+'</td>'+
+          '<td><span class="badge '+(p.tipo==='cliente'?'bg':'ba')+'">'+(p.tipo==='cliente'?'recebido':'pago')+'</span></td>'+
+          '<td style="text-align:right;color:'+(p.tipo==='cliente'?'var(--green)':'var(--red)')+'" class="mono">'+fm(p.valor)+'</td>'+
+          '<td style="color:var(--text3);font-size:12px">'+(conta?conta.nome:'—')+'</td>'+
+        '</tr>';
+      }).join('')+'</tbody></table>';
+  }
+
+  // Pizza charts — always render with full baixadas for the selected filter
+  var COLORS_PAG=['#E07B54','#5DAAE0','#E0C454','#7BC98A','#C87BCC','#54C8C8','#E08080','#8097E0','#B5CC7B','#E0A054'];
+  var COLORS_REC=['#5DCAA5','#54A8E0','#A5D45D','#D4A35A','#7B9BE0','#5DC8C8','#A57BE0','#E0C87B','#C8E07B','#7BE0A5'];
+
+  // For pizza, use all baixadas in the selected month (ignore tipo filter)
+  var listaPizza=baixadas.filter(function(p){
+    if(mesFiltro){ var d=p.dataBaixa||p.vencimento||''; if(!d||mk(d)!==mesFiltro) return false; }
+    return true;
+  });
+
+  var mapPag={}, mapRec={};
+  listaPizza.forEach(function(p){
+    var n=p.entNome||'Outros';
+    if(p.tipo==='fornecedor') mapPag[n]=(mapPag[n]||0)+p.valor;
+    else mapRec[n]=(mapRec[n]||0)+p.valor;
+  });
+
+  var totPag=Object.keys(mapPag).reduce(function(s,k){return s+mapPag[k];},0);
+  var totRec=Object.keys(mapRec).reduce(function(s,k){return s+mapRec[k];},0);
+
+  var subPag=el('hist-pizza-pag-sub'); if(subPag) subPag.textContent=totPag>0?'— '+fm(totPag):'';
+  var subRec=el('hist-pizza-rec-sub'); if(subRec) subRec.textContent=totRec>0?'— '+fm(totRec):'';
+
+  buildPizza(totPag>0?mapToItems(mapPag,totPag):[], totPag, 'hist-pizza-pag', COLORS_PAG);
+  buildPizza(totRec>0?mapToItems(mapRec,totRec):[], totRec, 'hist-pizza-rec', COLORS_REC);
+}
 
 // ── init ──────────────────────────────────────────────────────────────────────
 load();
